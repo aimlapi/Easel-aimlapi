@@ -305,6 +305,11 @@ CLAUDE_MODEL=你的模型名
 安装器会把这些标准配置同步到 OpenClaw。OpenClaw 支持但 Easel 没有预设环境变量映射的其他 provider，
 可以按 OpenClaw 自身的 provider/auth 配置方式配置；Easel 不会覆盖这些自定义配置。
 
+Web 设置的聊天通道（OpenClaw）还提供 AI/ML API 预设（OpenAI 兼容）：点「＋ AI/ML API」，
+填 [aimlapi.com/app/keys](https://aimlapi.com/app/keys) 的 Key 即可，根地址固定为
+`https://api.aimlapi.com/v1`，默认模型 `openai/gpt-4.1-mini`，「拉取模型」只列出聊天模型。
+保存后写入 OpenClaw 的 `aimlapi` provider；点「设为主」才会切换主模型，已有配置不变。
+
 在 Web 设置的聊天通道中，自定义供应商可勾选“该模型会思考”，保存后会写入模型的
 `reasoning: true`。OpenAI 兼容协议还可选择思考格式（OpenAI、DeepSeek 等），需与上游
 接口实际支持的格式一致；原生 Anthropic 协议使用其自身的思考格式，无需另选。

@@ -1807,6 +1807,18 @@ def _model_channels(runtime: str | None = None) -> dict:
                 model_entry = models[0] if models and isinstance(models[0], dict) else {}
                 compat = model_entry.get("compat")
                 compat = compat if isinstance(compat, dict) else {}
+                if pkey == AIMLAPI_PROVIDER and str(pv.get("baseUrl") or "").rstrip("/") == AIMLAPI_BASE_URL:
+                    # 预设行：名称/根地址固定，只让改模型和 Key（见 api_settings_models_save 的 aimlapi 分支）
+                    custom_rows.append({
+                        "slot": "aimlapi", "order": 0, "name": "AI/ML API", "sub": "预设",
+                        "type": "openai", "model": mid or AIMLAPI_DEFAULT_MODEL, "baseUrl": AIMLAPI_BASE_URL,
+                        "keyMasked": _mask_key(str(pv.get("apiKey") or "")
+                                               if _is_set(str(pv.get("apiKey") or "")) else ""),
+                        "role": "主" if primary == f"{pkey}/{mid}" else "备",
+                        "result": "已配置" if _is_set(str(pv.get("apiKey") or "")) else "缺 key",
+                        "deletable": True,
+                    })
+                    continue
                 custom_rows.append({
                     "slot": "custom", "order": 0, "name": pkey, "sub": "自定义",
                     "type": "openai",
@@ -2144,6 +2156,13 @@ def _write_env_direct(updates: dict[str, str]) -> None:
 
 
 RESERVED_PROVIDER_KEYS = {"openai", "anthropic", "relay"}
+# AI/ML API 预设：OpenAI 兼容网关，落成 openclaw.json 里名为 aimlapi 的 provider。
+# 根地址写死、面板不可改：Key 只会发往这一个精确地址（要换地址请用「添加供应商」）。
+AIMLAPI_PROVIDER = "aimlapi"
+AIMLAPI_BASE_URL = "https://api.aimlapi.com/v1"
+# 默认模型：价格低、支持 tools / 图片输入 / 流式（GET /v1/models?include=all 中 type=openai/chat-completions）。
+AIMLAPI_DEFAULT_MODEL = "openai/gpt-4.1-mini"
+AIMLAPI_CHAT_TYPE = "openai/chat-completions"
 THINKING_FORMATS = {
     "openai", "openrouter", "deepseek", "together", "qwen", "qwen-chat-template", "zai",
 }
@@ -2493,6 +2512,21 @@ async def api_settings_models_save(req: ModelSaveRequest):
                 updates['SILICONFLOW_BASE_URL'] = base
             if key:
                 updates['SILICONFLOW_API_KEY'] = key
+        elif slot == 'aimlapi' and is_chat:
+            if any((r.slot or '').strip() == 'custom' and (r.name or '').strip().lower() == AIMLAPI_PROVIDER
+                   for r in req.rows):
+                raise HTTPException(400, f'自定义供应商「{AIMLAPI_PROVIDER}」与 AI/ML API 预设重名，请给自定义供应商换个名字')
+            # 预设固定写 aimlapi provider + 固定根地址；前端回传的 baseUrl 只接受同一地址，
+            # 防止把已存的 AI/ML API Key 带到别处。
+            if base and base != AIMLAPI_BASE_URL:
+                raise HTTPException(400, f'AI/ML API 预设的根地址固定为 {AIMLAPI_BASE_URL}；其他地址请用「添加供应商」')
+            base = AIMLAPI_BASE_URL
+            model = model or AIMLAPI_DEFAULT_MODEL
+            if not key and not _is_set(_cur_prov.get(AIMLAPI_PROVIDER, ('', ''))[1]):
+                raise HTTPException(400, 'AI/ML API 需要填写 API Key（https://aimlapi.com/app/keys）')
+            provider_updates[AIMLAPI_PROVIDER] = {'model': model, 'base': base, 'key': key, 'protocol': 'openai'}
+            keep_custom.add(AIMLAPI_PROVIDER)
+            pkey = AIMLAPI_PROVIDER
         elif slot == 'custom' and is_chat:
             if not re.fullmatch(r'[a-z0-9][a-z0-9-]{0,23}', name):
                 raise HTTPException(400, f'供应商名只能用小写字母/数字/横线（最长24位）：{name[:30] or "（空）"}')
@@ -2552,7 +2586,7 @@ async def api_settings_models_save(req: ModelSaveRequest):
             # 无脑拼前缀会写出 anthropic/anthropic/claude-opus-4-7，主模型随即不可路由。
             # 自定义供应商的模型 ID 是上游原值，可能包含命名空间
             # （如 LiteLLM 的 dashscope/qwen-*），必须保留并加上实际供应商。
-            primary_ref = (f'{pkey}/{model}' if slot == 'custom'
+            primary_ref = (f'{pkey}/{model}' if slot in ('custom', 'aimlapi')
                            else model if model.startswith(f'{pkey}/') else f'{pkey}/{model}')
     if not updates and not provider_updates and not primary_ref:
         raise HTTPException(400, '没有可保存的改动（key 留空表示不改）')
@@ -2771,6 +2805,8 @@ async def api_models_available(req: ModelsFetchRequest):
         if slot == 'custom':
             # 自定义供应商的凭据在 openclaw.json 里（provider 名 = 用户填的名字）
             _b, _k = _openclaw_provider_creds().get((req.name or '').strip().lower(), ("", ""))
+        elif slot == 'aimlapi':
+            _b, _k = _openclaw_provider_creds().get(AIMLAPI_PROVIDER, ("", ""))
         else:
             _bk, _kk = _FETCH_KEY_BY_SLOT.get(slot, ("", ""))
             _b, _k = _env.get(_bk, ""), _env.get(_kk, "")
@@ -2779,6 +2815,11 @@ async def api_models_available(req: ModelsFetchRequest):
             raise HTTPException(400, "更换根地址时必须重新填写 Key，不能把已存 Key 发给其他地址")
         if not base and _b:
             base = _b.strip().rstrip("/")
+    if slot == 'aimlapi':
+        # 预设只认精确地址：Key（无论草稿还是已存）绝不发往别的主机。
+        if base and base != AIMLAPI_BASE_URL:
+            raise HTTPException(400, f"AI/ML API 预设的根地址固定为 {AIMLAPI_BASE_URL}")
+        base = AIMLAPI_BASE_URL
     if not base:
         raise HTTPException(400, "Base URL 不能为空")
     if not _valid_base_url(base):
@@ -2791,6 +2832,10 @@ async def api_models_available(req: ModelsFetchRequest):
         url = base + "/v1/models"
         headers = {"x-api-key": key, "anthropic-version": "2023-06-01",
                    "Authorization": f"Bearer {key}"}
+    elif slot == 'aimlapi':
+        # 公开目录不需要 Key：include=all 才带 type 字段，用它只留聊天模型（图片/视频/语音等不进下拉）。
+        url = base + "/models?include=all"
+        headers = {}
     else:
         url = base + "/models"
         headers = {"Authorization": f"Bearer {key}"} if key else {}
@@ -2815,6 +2860,8 @@ async def api_models_available(req: ModelsFetchRequest):
             items = payload
         else:
             items = []
+        if slot == 'aimlapi':
+            items = [it for it in items if isinstance(it, dict) and it.get("type") == AIMLAPI_CHAT_TYPE]
         ids = []
         for it in items:
             mid = it.get("id") if isinstance(it, dict) else it

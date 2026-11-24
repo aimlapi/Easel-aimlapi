@@ -249,6 +249,12 @@ CLAUDE_MODEL=anthropic/claude-sonnet-4-6
 
 `.env.example` also documents optional video, music, voice, and Anthropic-compatible provider settings. Configure only the capabilities you use. Missing media-provider credentials do not prevent chat, planning, or text creation.
 
+The chat channel in Web Settings (OpenClaw) also offers an AI/ML API preset (OpenAI-compatible):
+click “＋ AI/ML API” and paste a key from [aimlapi.com/app/keys](https://aimlapi.com/app/keys).
+The base URL is fixed to `https://api.aimlapi.com/v1`, the default model is `openai/gpt-4.1-mini`,
+and “拉取模型” lists chat models only. Saving writes an `aimlapi` provider to OpenClaw; the primary
+model changes only when you click “设为主”, so existing setups stay as they are.
+
 Custom chat providers in Web Settings expose a “该模型会思考” (reasoning-capable) checkbox.
 Enabling it writes `reasoning: true`; OpenAI-compatible providers also offer a thinking format
 (OpenAI, DeepSeek, etc.) that must match the upstream API. Native Anthropic uses its own format.

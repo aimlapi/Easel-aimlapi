@@ -53,6 +53,9 @@ async function fetchWithRetry<T>(fn: () => Promise<T>, tries = 4, timeoutMs = 18
 
 /** 后端放在 model/baseUrl 里的展示占位串——提交前要清掉，它们不是真实配置值。 */
 const PLACEHOLDERS = new Set(['—', '官方', '（未配置）', '本机', '内建默认']);
+// 与后端 web/app.py 的 AIMLAPI_BASE_URL / AIMLAPI_DEFAULT_MODEL 保持一致
+const AIMLAPI_BASE_URL = 'https://api.aimlapi.com/v1';
+const AIMLAPI_DEFAULT_MODEL = 'openai/gpt-4.1-mini';
 
 const hhmm = (ts: number) => {
   const d = new Date(ts * 1000);
@@ -391,6 +394,8 @@ export default function SettingsPanel({ onClose, banner = '' }: Props) {
     anthropic: { model: true, base: true },
     siliconflow: { model: false, base: true },
     custom: { model: true, base: true },
+    // AI/ML API 预设：根地址固定（Key 只发往 api.aimlapi.com），只改模型和 Key
+    aimlapi: { model: true, base: false },
   };
 
   const addProvider = () => {
@@ -399,6 +404,14 @@ export default function SettingsPanel({ onClose, banner = '' }: Props) {
       model: '', baseUrl: '', keyMasked: '', role: '备', result: '待保存',
       thinking: false, thinkingFormat: 'openai',
     }]);
+  };
+
+  // AI/ML API 预设行：OpenAI 兼容网关，模型可从其公开目录拉取（只列聊天模型）
+  const addAimlapi = () => {
+    setChatRows((rs) => (rs.some((r) => r.slot === 'aimlapi') ? rs : [...rs, {
+      slot: 'aimlapi', order: 0, name: 'AI/ML API', sub: '预设', type: 'openai',
+      model: AIMLAPI_DEFAULT_MODEL, baseUrl: AIMLAPI_BASE_URL, keyMasked: '', role: '备', result: '待保存',
+    }]));
   };
 
   const setPrimaryRow = (i: number) =>
@@ -453,6 +466,7 @@ export default function SettingsPanel({ onClose, banner = '' }: Props) {
   const cacheKeyFor = (r: ModelRow) => {
     const base = (r.baseUrl || '').trim().replace(/\/+$/, '');
     if (!base) return '';
+    if (r.slot === 'aimlapi') return `${base}::aimlapi`;
     return `${base}::${r.slot === 'custom' ? (r.protocol || 'openai') : (r.type === 'anthropic' ? 'anthropic' : 'openai')}`;
   };
 
@@ -780,7 +794,12 @@ export default function SettingsPanel({ onClose, banner = '' }: Props) {
                     </div>
                     {renderBoard(chatRows, { onRow: (i, p) => updateRow(setChatRows, i, p), onPrimary: setPrimaryRow, onRemove: removeRow }, 'chat')}
                     {selectedHarness === 'api' ? <div className="foot-note">此通道使用独立的 EASEL_DIRECT_API_* 配置，与原有 OpenAI 通道分开保存。支持聊天、画像、文本和图片附件（需模型支持图片）。没有本机文件、浏览器或技能执行工具。</div>
-                      : <div className="add-row" onClick={addProvider}>＋ 添加供应商（填名称 / 模型 / Base URL / Key；点「设为主」切换生效通道）</div>}
+                      : <>
+                        <div className="add-row" onClick={addProvider}>＋ 添加供应商（填名称 / 模型 / Base URL / Key；点「设为主」切换生效通道）</div>
+                        {!chatRows.some((r) => r.slot === 'aimlapi') && (
+                          <div className="add-row" onClick={addAimlapi}>＋ AI/ML API（OpenAI 兼容，一个 Key 用多家模型；Key 在 aimlapi.com/app/keys 获取）</div>
+                        )}
+                      </>}
                     {harness === 'openclaw' && (() => {
                       // 本机 agent 区块：装了 Claude Code / Gemini CLI 并登录过的用户不需要填 API Key。
                       // 只展示「已装」的行 —— 没装的用户看一眼全是灰的只会困惑。
